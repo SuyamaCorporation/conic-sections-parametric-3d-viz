@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>円錐曲線パラメトリック3Dビジュアライザー</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col items-center py-6">
+<h1 class="text-2xl font-bold mb-4 text-amber-400">円錐曲線パラメトリック3Dビジュアライザー</h1>
+<div class="flex gap-4 flex-wrap justify-center mb-4">
+  <button data-type="circle" class="type-btn px-3 py-1 rounded bg-amber-700 hover:bg-amber-600 text-sm">円</button>
+  <button data-type="ellipse" class="type-btn px-3 py-1 rounded bg-amber-700 hover:bg-amber-600 text-sm">楕円</button>
+  <button data-type="parabola" class="type-btn px-3 py-1 rounded bg-amber-700 hover:bg-amber-600 text-sm">放物線</button>
+  <button data-type="hyperbola" class="type-btn px-3 py-1 rounded bg-amber-700 hover:bg-amber-600 text-sm">双曲線</button>
+</div>
+<canvas id="canvas" width="500" height="400" class="border border-gray-600 rounded bg-gray-800" aria-label="円錐曲線3D可視化"></canvas>
+<div class="mt-4 w-full max-w-lg px-4">
+  <label class="block text-sm text-gray-400 mb-1">切断角度: <span id="angleVal">45</span>°</label>
+  <input type="range" id="sliceAngle" min="1" max="89" step="1" value="45" class="w-full accent-amber-400">
+</div>
+<div id="infoBox" class="mt-4 w-full max-w-lg px-4 text-sm text-gray-300 bg-gray-800 rounded p-3">
+  <span id="infoText"></span>
+</div>
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let currentType = 'ellipse';
+let sliceAngle = 45;
+let rotX = -0.4, rotY = 0.5;
+let isDragging = false, lastMX = 0, lastMY = 0;
+
+function project3D(x, y, z) {
+  const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+  const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+  const y2 = y * cosX - z * sinX;
+  const z2 = y * sinX + z * cosX;
+  const x2 = x * cosY + z2 * sinY;
+  const z3 = -x * sinY + z2 * cosY;
+  const scale = 350 / (350 + z3);
+  return { px: x2 * scale + 250, py: y2 * scale + 200 };
+}
+
+function drawCone() {
+  const h = 150, r = 100;
+  ctx.strokeStyle = '#4b5563';
+  ctx.lineWidth = 1;
+  const steps = 32;
+  for (let i = 0; i < steps; i++) {
+    const a = (i / steps) * Math.PI * 2;
+    const p = project3D(r * Math.cos(a), h, r * Math.sin(a));
+    const p2 = project3D(r * Math.cos(a), -h, r * Math.sin(a));
+    ctx.beginPath();
+    ctx.moveTo(p.px, p.py);
+    ctx.lineTo(p2.px, p2.py);
+    ctx.stroke();
+  }
+  for (const y of [h, 0, -h]) {
+    const rr = y === 0 ? 0 : r;
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const a = (i / steps) * Math.PI * 2;
+      const p = project3D(rr * Math.cos(a), y, rr * Math.sin(a));
+      i === 0 ? ctx.moveTo(p.px, p.py) : ctx.lineTo(p.px, p.py);
+    }
+    ctx.stroke();
+  }
+}
+
+function getConicInfo(type, angle) {
+  const a = angle * Math.PI / 180;
+  switch (type) {
+    case 'circle':
+      return { e: 0, label: '円', eq: 'e = 0, x² + y² = r²', focus: '焦点: (0, 0)' };
+    case 'ellipse': {
+      const e = Math.cos(a) / Math.sin(a);
+      const ec = Math.min(e, 0.99).toFixed(2);
+      return { e: ec, label: '楕円', eq: `離心率 e = ${ec}`, focus: `焦点: (±${(ec*2).toFixed(1)}, 0)` };
+    }
+    case 'parabola':
+      return { e: 1, label: '放物線', eq: 'e = 1, y = ax²', focus: '焦点: (0, p)' };
+    case 'hyperbola': {
+      const ec = (1.5 + Math.cos(a)).toFixed(2);
+      return { e: ec, label: '双曲線', eq: `離心率 e = ${ec} > 1`, focus: `焦点: (±c, 0)` };
+    }
+  }
+}
+
+function drawCurve(type) {
+  const steps = 200;
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = '#fbbf24';
+  ctx.beginPath();
+  let first = true;
+  if (type === 'circle') {
+    for (let i = 0; i <= steps; i++) {
+      const t = (i / steps) * Math.PI * 2;
+      const p = project3D(80 * Math.cos(t), 0, 80 * Math.sin(t));
+      first ? ctx.moveTo(p.px, p.py) : ctx.lineTo(p.px, p.py);
+      first = false;
+    }
+  } else if (type === 'ellipse') {
+    const a = 100, b = 60 + 40 * Math.cos(sliceAngle * Math.PI / 180);
+    for (let i = 0; i <= steps; i++) {
+      const t = (i / steps) * Math.PI * 2;
+      const p = project3D(a * Math.cos(t), b * Math.sin(t) * 0.5, 0);
+      first ? ctx.moveTo(p.px, p.py) : ctx.lineTo(p.px, p.py);
+      first = false;
+    }
+  } else if (type === 'parabola') {
+    for (let i = 0; i <= steps; i++) {
+      const t = -100 + i * 200 / steps;
+      const p = project3D(t, t * t * 0.01 - 50, 0);
+      first ? ctx.moveTo(p.px, p.py) : ctx.lineTo(p.px, p.py);
+      first = false;
+    }
+  } else if (type === 'hyperbola') {
+    for (let branch = 0; branch < 2; branch++) {
+      let hFirst = true;
+      for (let i = -60; i <= 60; i++) {
+        const t = i * Math.PI / 120;
+        const x = 60 * (branch === 0 ? Math.cosh(t) : -Math.cosh(t));
+        const y = 40 * Math.sinh(t);
+        const p = project3D(x, y * 0.5, 0);
+        hFirst ? ctx.moveTo(p.px, p.py) : ctx.lineTo(p.px, p.py);
+        hFirst = false;
+      }
+    }
+  }
+  ctx.stroke();
+}
+
+function drawSlicePlane() {
+  ctx.fillStyle = 'rgba(251,191,36,0.08)';
+  ctx.strokeStyle = 'rgba(251,191,36,0.3)';
+  ctx.lineWidth = 1;
+  const pts = [[-120,-120],[ 120,-120],[120,120],[-120,120]];
+  ctx.beginPath();
+  pts.forEach(([x,z],i) => {
+    const p = project3D(x, 0, z);
+    i === 0 ? ctx.moveTo(p.px, p.py) : ctx.lineTo(p.px, p.py);
+  });
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+}
+
+function draw() {
+  ctx.clearRect(0, 0, 500, 400);
+  drawCone();
+  drawSlicePlane();
+  drawCurve(currentType);
+  const info = getConicInfo(currentType, sliceAngle);
+  document.getElementById('infoText').textContent = `${info.label} | ${info.eq} | ${info.focus}`;
+}
+
+document.querySelectorAll('.type-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    currentType = btn.dataset.type;
+    draw();
+  });
+});
+document.getElementById('sliceAngle').addEventListener('input', e => {
+  sliceAngle = parseInt(e.target.value);
+  document.getElementById('angleVal').textContent = sliceAngle;
+  draw();
+});
+canvas.addEventListener('mousedown', e => {
+  isDragging = true;
+  lastMX = e.clientX; lastMY = e.clientY;
+});
+canvas.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  rotY += (e.clientX - lastMX) * 0.01;
+  rotX += (e.clientY - lastMY) * 0.01;
+  lastMX = e.clientX; lastMY = e.clientY;
+  draw();
+});
+canvas.addEventListener('mouseup', () => { isDragging = false; });
+canvas.addEventListener('mouseleave', () => { isDragging = false; });
+
+draw();
+</script>
+</body>
+</html>
